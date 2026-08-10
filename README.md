@@ -43,11 +43,11 @@ Analyze non-Bellabeat smart device fitness data (Fitbit) to discover consumer us
 ## 🧹 Phase 3: Process
 
 ### Cleaning & Data Transformation (SQL - BigQuery)
-1. **Merged Datasets:** Combined `dailyActivity_merged` and `sleepDay_merged` on `Id` / `user_id` and `ActivityDate` / `SleepDay` to create the unified table `daily_activity_and_sleep`.
-2. **Standardized Column Names:** Converted all column names to standard `snake_case` (e.g., `user_id`, `total_steps`, `total_minutes_asleep`).
-3. **Handled Nulls & Missing Data:** Replaced missing sleep values with `0` for days where users wore their device for activity tracking but did not log sleep.
+1. **Merged Datasets:** Combined 'dailyActivity_merged' and 'sleepDay_merged' on 'user_id' and 'activity_date' / 'SleepDay' to create the unified table `daily_activity_and_sleep`.
+2. **Standardized Column Names:** Converted all column names to standard 'snake_case' (e.g., 'user_id', 'total_steps', 'total_minutes_asleep').
+3. **Handled Nulls & Missing Data:** Replaced missing sleep values with '0' for days where users wore their device for activity tracking but did not log sleep.
 4. **Data Deduplication:** Filtered out duplicate sleep logs to ensure accurate nightly sleep totals.
-
+   
 ---
 
 ## 🔍 Phase 4: Analyze
@@ -56,11 +56,26 @@ Analyze non-Bellabeat smart device fitness data (Fitbit) to discover consumer us
 * **Average Daily Steps:** ~7,638 steps (below the 10,000 daily recommendation).
 * **Average Daily Sleep:** ~419 minutes (~7.0 hours).
 * **Average Sedentary Time:** ~991 minutes (~16.5 hours per day).
+```sql
+SELECT 
+  ROUND(AVG(total_steps), 2) AS avg_daily_steps,
+  ROUND(AVG(total_minutes_asleep), 2) AS avg_sleep_minutes,
+  ROUND(AVG(sedentary_minutes), 2) AS avg_sedentary_minutes
+FROM `fitbit_data.daily_activity_and_sleep`;
 
 ### 2. Day-of-Week Trends
 * **Most Active Days:** Tuesdays (~8,125 steps) and Saturdays (~8,153 steps).
 * **Most Sedentary Day:** Mondays (~1,027 sedentary minutes).
 * **Longest Sleep Day:** Sundays (~453 minutes / 7.5 hours).
+  ```sql
+   SELECT 
+  day_of_week,
+  ROUND(AVG(total_steps), 2) AS avg_steps,
+  ROUND(AVG(total_minutes_asleep), 2) AS avg_sleep_mins,
+  ROUND(AVG(sedentary_minutes), 2) AS avg_sedentary_mins
+FROM `fitbit_data.daily_activity_and_sleep`
+GROUP BY day_of_week
+ORDER BY avg_steps DESC;
 
 ### 3. User Segmentation (Activity Tiers)
 
@@ -70,6 +85,28 @@ Analyze non-Bellabeat smart device fitness data (Fitbit) to discover consumer us
 | **Somewhat Active** | 7,500 – 9,999 steps | 9 | 27.27% |
 | **Sedentary** | < 5,000 steps | 8 | 24.24% |
 | **Highly Active** | ≥ 10,000 steps | 7 | 21.21% |
+  ```sql
+WITH user_tiers AS (
+  SELECT 
+    user_id,
+    ROUND(AVG(total_steps), 2) AS avg_daily_steps,
+    CASE 
+      WHEN AVG(total_steps) < 5000 THEN 'Sedentary'
+      WHEN AVG(total_steps) BETWEEN 5000 AND 7499 THEN 'Low Active'
+      WHEN AVG(total_steps) BETWEEN 7500 AND 9999 THEN 'Somewhat Active'
+      ELSE 'Highly Active'
+    END AS activity_tier
+  FROM `fitbit_data.daily_activity_and_sleep`
+  GROUP BY user_id
+)
+
+SELECT 
+  activity_tier,
+  COUNT(user_id) AS total_users,
+  ROUND(COUNT(user_id) * 100.0 / 33, 2) AS percentage
+FROM user_tiers
+GROUP BY activity_tier
+ORDER BY total_users DESC;
 
 #### Key Insight:
 Over **51% of users** fall into the `Sedentary` or `Low Active` categories (averaging under 7,500 steps/day), while only **21.21%** reach the universally recommended 10,000 daily step target.
