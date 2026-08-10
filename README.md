@@ -42,11 +42,12 @@ Analyze non-Bellabeat smart device fitness data (Fitbit) to discover consumer us
 
 ## 🧹 Phase 3: Process
 
-### Cleaning & Data Transformation (SQL - BigQuery)
-1. **Merged Datasets:** Combined 'dailyActivity_merged' and 'sleepDay_merged' on 'user_id' and 'activity_date' / 'SleepDay' to create the unified table `daily_activity_and_sleep`.
-2. **Standardized Column Names:** Converted all column names to standard 'snake_case' (e.g., 'user_id', 'total_steps', 'total_minutes_asleep').
-3. **Handled Nulls & Missing Data:** Replaced missing sleep values with '0' for days where users wore their device for activity tracking but did not log sleep.
-4. **Data Deduplication:** Filtered out duplicate sleep logs to ensure accurate nightly sleep totals.
+### Data Staging & Cleaning (SQL - BigQuery)
+
+1. **Created Clean Staging Tables:** Created duplicate copies of raw tables (`daily_activity_cleaned` and `sleep_day_cleaned`) to perform transformations while preserving original raw data integrity.
+2. **Standardized Column Names:** Converted all field names across tables to standard `snake_case` naming conventions (e.g., `user_id`, `total_steps`, `total_minutes_asleep`, `activity_date`).
+3. **Data Deduplication:** Identified and filtered out duplicate sleep records from the staging dataset to ensure accurate nightly sleep aggregates.
+4. **Merged Datasets:** Applied a `LEFT JOIN` on `user_id` and date fields to merge `sleep_day_cleaned` into `daily_activity_cleaned`, creating a unified primary dataset (`daily_activity_and_sleep`) while retaining all daily activity logs.
    
 ---
 
@@ -56,6 +57,7 @@ Analyze non-Bellabeat smart device fitness data (Fitbit) to discover consumer us
 * **Average Daily Steps:** ~7,638 steps (below the 10,000 daily recommendation).
 * **Average Daily Sleep:** ~419 minutes (~7.0 hours).
 * **Average Sedentary Time:** ~991 minutes (~16.5 hours per day).
+
 ```sql
 SELECT 
   ROUND(AVG(total_steps), 2) AS avg_daily_steps,
@@ -110,3 +112,29 @@ ORDER BY total_users DESC;
 
 #### Key Insight:
 Over **51% of users** fall into the `Sedentary` or `Low Active` categories (averaging under 7,500 steps/day), while only **21.21%** reach the universally recommended 10,000 daily step target.
+```
+---
+
+## 📊 Phase 5: Share
+
+### Interactive Executive Dashboard
+* **Tableau Public Dashboard:** [Bellabeat Executive Dashboard](https://public.tableau.com/authoring/BellabeatSmartDeviceDataAnalysis/Dashboard1/Bellabeat%20Executive%20Dashboard#1)
+
+### Key Insights Summary
+* **Daily Activity Deficit:** The average user logs **~7,638 steps per day**, falling below the recommended 10,000-step daily target.
+* **Midweek Engagement Dip:** Activity peaks on **Tuesdays (~8,125 steps)** and **Saturdays (~8,153 steps)**, but declines significantly midweek (Wednesday–Thursday).
+* **Calorie Burn Dynamics:** Strong positive linear relationship between steps and calories burned. High-calorie outliers with low step counts indicate non-step workouts (e.g., swimming, cycling, yoga).
+* **Sleep Latency Gap:** Users average **~419 minutes (~7.0 hours)** of asleep time, but consistently spend additional time awake in bed prior to falling asleep.
+
+---
+
+## 💡 Phase 6: Act
+
+### Strategic Marketing & Product Recommendations for Bellabeat
+
+1. **Midweek Activity Nudges (Bellabeat App):**
+   * *Action:* Implement personalized push notifications on Wednesday and Thursday afternoons encouraging users to complete short 15-minute walks or quick home workouts to counteract midweek activity slumps.
+2. **Bedtime & Wind-Down Reminders (Leaf & Time Integration):**
+   * *Action:* Introduce smart evening alerts paired with guided meditation audio tracks in the Bellabeat App to help users minimize sleep latency (time spent awake in bed).
+3. **Holistic Exercise & Calorie Recognition:**
+   * *Action:* Market non-step activity logging (yoga, swimming, strength training) directly through the Bellabeat App so users who don't hit 10,000 steps still receive credit for active calorie burn.
