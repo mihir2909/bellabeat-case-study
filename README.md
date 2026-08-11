@@ -45,49 +45,137 @@ Analyze non-Bellabeat smart device fitness data (Fitbit) to discover consumer us
 ### Data Staging & Cleaning (SQL - BigQuery)
 
 1. **Created Clean Staging Tables:** Created duplicate copies of raw tables (`daily_activity_cleaned` and `sleep_day_cleaned`) to perform transformations while preserving original raw data integrity.
-2. **Standardized Column Names:** Converted all field names across tables to standard `snake_case` naming conventions (e.g., `user_id`, `total_steps`, `total_minutes_asleep`, `activity_date`).
-3. **Data Deduplication:** Identified and filtered out duplicate sleep records from the staging dataset to ensure accurate nightly sleep aggregates.
-4. **Merged Datasets:** Applied a `LEFT JOIN` on `user_id` and date fields to merge `sleep_day_cleaned` into `daily_activity_cleaned`, creating a unified primary dataset (`daily_activity_and_sleep`) while retaining all daily activity logs.
-   
+```sql
+CREATE OR REPLACE TABLE `fitbit_data.daily_activity_cleaned` AS
+SELECT DISTINCT
+  CAST(Id AS STRING) AS user_id,
+  ActivityDate AS activity_date,
+  TotalSteps AS total_steps,
+  TotalDistance AS total_distance,
+  TrackerDistance AS tracker_distance,
+  LoggedActivitiesDistance AS logged_activities_distance,
+  VeryActiveDistance AS very_active_distance,
+  ModeratelyActiveDistance AS moderately_active_distance,
+  LightActiveDistance AS light_active_distance,
+  SedentaryActiveDistance AS sedentary_active_distance,
+  VeryActiveMinutes AS very_active_minutes,
+  FairlyActiveMinutes AS fairly_active_minutes,
+  LightlyActiveMinutes AS lightly_active_minutes,
+  SedentaryMinutes AS sedentary_minutes,
+  Calories AS calories
+FROM `fitbit_data.daily_activity`;
+```
+2. **Verify Daily Activity Data Integrity:**
+```sql
+SELECT
+  COUNT(DISTINCT user_id) AS unique_users,
+  MIN(activity_date) AS start_date,
+  MAX(activity_date) AS end_date
+FROM `fitbit_data.daily_activity_cleaned`;
+```
+3. **Clean & Stage Sleep Data:**
+```sql
+CREATE OR REPLACE TABLE `fitbit_data.sleep_day_cleaned` AS
+SELECT DISTINCT
+  CAST(Id AS STRING) AS user_id,
+  PARSE_DATETIME('%m/%d/%Y %r', SleepDay) AS sleep_day,
+  TotalSleepRecords AS total_sleep_records,
+  TotalMinutesAsleep AS total_minutes_asleep,
+  TotalTimeInBed AS total_time_in_bed
+FROM `fitbit_data.sleep_day`;
+```
+4. **Verify Sleep Data Integrity:** 
+```sql
+SELECT 
+  COUNT(DISTINCT user_id) AS unique_users,
+  MIN(sleep_day) AS start_date,
+  MAX(sleep_day) AS end_date
+FROM `fitbit_data.sleep_day_cleaned`;
+```
+5. **Merged Primary Dataset:**
+```sql
+CREATE OR REPLACE TABLE `fitbit_data.daily_activity_and_sleep` AS 
+SELECT
+  a.user_id,
+  a.activity_date,
+  a.total_steps,
+  a.total_distance,
+  a.very_active_minutes,
+  a.fairly_active_minutes,
+  a.lightly_active_minutes,
+  a.sedentary_minutes,
+  a.calories,
+  s.total_sleep_records,
+  s.total_minutes_asleep,
+  s.total_time_in_bed
+FROM `fitbit_data.daily_activity_cleaned` AS a
+LEFT JOIN `fitbit_data.sleep_day_cleaned` AS s 
+  ON a.user_id = s.user_id 
+  AND a.activity_date = DATE(s.sleep_day);
+```
 ---
 
 ## 🔍 Phase 4: Analyze
 
-### 1. Overall User Averages
-* **Average Daily Steps:** ~7,638 steps (below the 10,000 daily recommendation).
-* **Average Daily Sleep:** ~419 minutes (~7.0 hours).
-* **Average Sedentary Time:** ~991 minutes (~16.5 hours per day).
+1. Overall User Averages
+Calculated baseline daily averages across step count, distance, calorie expenditure, active minutes, and sleep metrics:
 
 ```sql
 SELECT 
   ROUND(AVG(total_steps), 2) AS avg_daily_steps,
-  ROUND(AVG(total_minutes_asleep), 2) AS avg_sleep_minutes,
-  ROUND(AVG(sedentary_minutes), 2) AS avg_sedentary_minutes
+  ROUND(AVG(total_distance), 2) AS avg_daily_distance_miles,
+  ROUND(AVG(calories), 2) AS avg_daily_calories,
+  ROUND(AVG(very_active_minutes), 2) AS avg_very_active_mins,
+  ROUND(AVG(fairly_active_minutes), 2) AS avg_fairly_active_mins,
+  ROUND(AVG(lightly_active_minutes), 2) AS avg_lightly_active_mins,
+  ROUND(AVG(sedentary_minutes), 2) AS avg_sedentary_mins,
+  ROUND(AVG(total_minutes_asleep), 2) AS avg_mins_asleep,
+  ROUND(AVG(total_time_in_bed), 2) AS avg_mins_in_bed 
 FROM `fitbit_data.daily_activity_and_sleep`;
+```   
+* **Average Daily Steps:** ~7,638 steps (below the 10,000 daily recommendation).
+* **Average Daily Sleep:** ~419 minutes (~7.0 hours).
+* **Average Sedentary Time:** ~991 minutes (~16.5 hours per day).
 
-### 2. Day-of-Week Trends
+2. Day-of-Week Trends
+Aggregated key metrics by day of the week to analyze user habits and identify activity dips:
+
+```sql
+SELECT 
+  FORMAT_DATE('%A', activity_date) AS day_of_week,
+  ROUND(AVG(total_steps), 2) AS avg_steps,
+  ROUND(AVG(calories), 2) AS avg_calories,
+  ROUND(AVG(sedentary_minutes), 2) AS avg_sedentary_mins,
+  ROUND(AVG(total_minutes_asleep), 2) AS avg_mins_asleep
+FROM `fitbit_data.daily_activity_and_sleep`
+GROUP BY day_of_week, EXTRACT(DAYOFWEEK FROM activity_date)
+ORDER BY EXTRACT(DAYOFWEEK FROM activity_date);
+```
 * **Most Active Days:** Tuesdays (~8,125 steps) and Saturdays (~8,153 steps).
 * **Most Sedentary Day:** Mondays (~1,027 sedentary minutes).
 * **Longest Sleep Day:** Sundays (~453 minutes / 7.5 hours).
-  ```sql
-   SELECT 
-  day_of_week,
-  ROUND(AVG(total_steps), 2) AS avg_steps,
-  ROUND(AVG(total_minutes_asleep), 2) AS avg_sleep_mins,
-  ROUND(AVG(sedentary_minutes), 2) AS avg_sedentary_mins
+
+3. User Segmentation (Activity Tiers)
+
+Identified average daily steps and classified each individual user into an activity tier:
+
+```sql
+SELECT
+  user_id,
+  ROUND(AVG(total_steps), 2) AS avg_daily_steps,
+  CASE 
+    WHEN AVG(total_steps) < 5000 THEN 'Sedentary'
+    WHEN AVG(total_steps) BETWEEN 5000 AND 7499 THEN 'Low Active'
+    WHEN AVG(total_steps) BETWEEN 7500 AND 9999 THEN 'Somewhat Active'
+    ELSE 'Highly Active'
+  END AS activity_tier
 FROM `fitbit_data.daily_activity_and_sleep`
-GROUP BY day_of_week
-ORDER BY avg_steps DESC;
+GROUP BY user_id;
+```
+4. User Segmentation & Percentage Breakdown
+Calculated total users and proportion per activity group to support targeted marketing strategies:
 
-### 3. User Segmentation (Activity Tiers)
-
-| Activity Tier | Criteria (Avg Daily Steps) | User Count | Percentage |
-| :--- | :--- | :--- | :--- |
-| **Low Active** | 5,000 – 7,499 steps | 9 | 27.27% |
-| **Somewhat Active** | 7,500 – 9,999 steps | 9 | 27.27% |
-| **Sedentary** | < 5,000 steps | 8 | 24.24% |
-| **Highly Active** | ≥ 10,000 steps | 7 | 21.21% |
-  ```sql
+```sql
 WITH user_tiers AS (
   SELECT 
     user_id,
@@ -109,9 +197,6 @@ SELECT
 FROM user_tiers
 GROUP BY activity_tier
 ORDER BY total_users DESC;
-
-#### Key Insight:
-Over **51% of users** fall into the `Sedentary` or `Low Active` categories (averaging under 7,500 steps/day), while only **21.21%** reach the universally recommended 10,000 daily step target.
 ```
 ---
 
